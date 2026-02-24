@@ -1,0 +1,199 @@
+from qiskit_metal import designs
+from qiskit_metal.qlibrary.qubits.transmon_pocket import TransmonPocket
+from qiskit_metal.qlibrary.tlines.straight_path import RouteStraight
+from qiskit_metal.qlibrary.tlines.meandered import RouteMeander
+from qiskit_metal.qlibrary.terminations.launchpad_wb import LaunchpadWirebond
+
+# Design Initialization
+
+design = designs.DesignPlanar()
+
+design.chips.main.size['size_x'] = '18mm'
+design.chips.main.size['size_y'] = '18mm'
+design.chips.main.size['size_z'] = '500um'
+design.chips.main.material = 'silicon'
+
+TRACE_W = '10um'
+TRACE_G = '6um'
+
+# Grid size and spacing
+
+ROWS = 2
+COLS = 3
+SPACING_X = 2500
+SPACING_Y = 3000
+
+# Create qubits in a grid pattern
+
+qubit_names = []
+
+for r in range(ROWS):
+    for c in range(COLS):
+
+        x = (c - (COLS-1)/2) * SPACING_X
+        y = (r - (ROWS-1)/2) * SPACING_Y
+
+        name = f"Q{r}{c}"
+
+        TransmonPocket(
+            design,
+            name,
+            options=dict(
+                pos_x=f'{x}um',
+                pos_y=f'{y}um',
+                pad_width='200um',
+                pad_height='90um',
+                pocket_width='450um',
+                pocket_height='650um',
+                jj_length='0.2um'
+            )
+        )
+
+        qubit_names.append(name)
+
+# Nearest-neighbor coupling buses
+
+for r in range(ROWS):
+    for c in range(COLS):
+
+        current = f"Q{r}{c}"
+
+        # Horizontal coupling
+        if c < COLS-1:
+            right = f"Q{r}{c+1}"
+
+            RouteStraight(
+                design,
+                f"bus_{current}_{right}",
+                options=dict(
+                    start_pin=dict(component=current, pin='drive'),
+                    end_pin=dict(component=right, pin='drive'),
+                    trace_width=TRACE_W,
+                    trace_gap=TRACE_G
+                )
+            )
+
+        # Vertical coupling
+        if r < ROWS-1:
+            down = f"Q{r+1}{c}"
+
+            RouteStraight(
+                design,
+                f"bus_{current}_{down}",
+                options=dict(
+                    start_pin=dict(component=current, pin='readout'),
+                    end_pin=dict(component=down, pin='readout'),
+                    trace_width=TRACE_W,
+                    trace_gap=TRACE_G
+                )
+            )
+
+# Readout resonators 
+
+base_length = 5500
+
+for i, name in enumerate(qubit_names):
+
+    RouteMeander(
+        design,
+        f"readout_{name}",
+        options=dict(
+            start_pin=dict(component=name, pin='readout'),
+            total_length=f'{base_length + 200*i}um',
+            trace_width=TRACE_W,
+            trace_gap=TRACE_G,
+            meander_spacing='20um',
+            fillet='40um'
+        )
+    )
+
+# Multiplexed feedline
+
+LaunchpadWirebond(
+    design,
+    "Readout_Left",
+    options=dict(
+        pos_x='-8000um',
+        pos_y='6000um',
+        orientation='0',
+        trace_width=TRACE_W,
+        trace_gap=TRACE_G
+    )
+)
+
+LaunchpadWirebond(
+    design,
+    "Readout_Right",
+    options=dict(
+        pos_x='8000um',
+        pos_y='6000um',
+        orientation='180',
+        trace_width=TRACE_W,
+        trace_gap=TRACE_G
+    )
+)
+
+RouteStraight(
+    design,
+    "main_readout_feedline",
+    options=dict(
+        start_pin=dict(component="Readout_Left", pin="tie"),
+        end_pin=dict(component="Readout_Right", pin="tie"),
+        trace_width=TRACE_W,
+        trace_gap=TRACE_G
+    )
+)
+
+# XY control lines
+
+for i, name in enumerate(qubit_names):
+
+    LaunchpadWirebond(
+        design,
+        f"DrivePad_{name}",
+        options=dict(
+            pos_x=f'{-8000 + 1000*i}um',
+            pos_y='-7000um',
+            orientation='90',
+            trace_width=TRACE_W,
+            trace_gap=TRACE_G
+        )
+    )
+
+    RouteStraight(
+        design,
+        f"drive_line_{name}",
+        options=dict(
+            start_pin=dict(component=f"DrivePad_{name}", pin="tie"),
+            end_pin=dict(component=name, pin="drive"),
+            trace_width=TRACE_W,
+            trace_gap=TRACE_G
+        )
+    )
+
+# Z control lines
+
+for i, name in enumerate(qubit_names):
+
+    LaunchpadWirebond(
+        design,
+        f"FluxPad_{name}",
+        options=dict(
+            pos_x=f'{8000 - 1000*i}um',
+            pos_y='-7000um',
+            orientation='90',
+            trace_width='8um',
+            trace_gap='4um'
+        )
+    )
+
+    RouteStraight(
+        design,
+        f"flux_line_{name}",
+        options=dict(
+            start_pin=dict(component=f"FluxPad_{name}", pin="tie"),
+            end_pin=dict(component=name, pin="junction"),
+            trace_width='8um',
+            trace_gap='4um'
+        )
+    )
